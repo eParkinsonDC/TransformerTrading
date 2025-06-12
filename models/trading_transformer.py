@@ -11,7 +11,7 @@ from models.timeseries_transformer import TimeSeriesTransformer
 from scripts.train_and_eval import (
     evaluate_model,
     plot_rolling_predictions,
-    walk_forward_time_series_cv,
+    walk_forward_time_series_cv_gridsearch,
     train_transformer_model,
 )
 from utils.model_utils import (
@@ -291,8 +291,14 @@ class TradingTransformer:
 
         # Only keys expected by TradingTransformer __init__
         MODEL_ARGS = {
-            "seq_length", "pred_length", "batch_size", "epochs", "lr",
-            "device", "cv_folds", "n_features",
+            "seq_length",
+            "pred_length",
+            "batch_size",
+            "epochs",
+            "lr",
+            "device",
+            "cv_folds",
+            "n_features",
         }
 
         # Allow both 'learning_rate' and 'lr' CLI arguments
@@ -311,11 +317,21 @@ class TradingTransformer:
             # ---- Walk-forward CV using current CSV ----
             df = pd.read_csv(csv_file_path)
             # Accept both time column styles
-            time_col = 'Gmt time' if 'Gmt time' in df.columns else 'GMT_TIME'
+            time_col = "Gmt time" if "Gmt time" in df.columns else "GMT_TIME"
             df[time_col] = pd.to_datetime(df[time_col], format="%d.%m.%Y %H:%M:%S.%f")
             df = df.sort_values(time_col).reset_index(drop=True)
 
-            must_have = ["Open", "High", "Low", "Close", "rsi", "bb_high", "bb_low", "ma_20", "ma_20_slope"]
+            must_have = [
+                "Open",
+                "High",
+                "Low",
+                "Close",
+                "rsi",
+                "bb_high",
+                "bb_low",
+                "ma_20",
+                "ma_20_slope",
+            ]
 
             # Build args for CV - only what's needed!
             cv_args = {
@@ -330,9 +346,30 @@ class TradingTransformer:
                 "lr": kwargs.get("lr", 1e-3),
                 "device": trader.device,
                 "model_class": TimeSeriesTransformer,
-                "verbose": True
+                "verbose": True,
             }
-            cv_losses = walk_forward_time_series_cv(**cv_args)
+
+            param_grid = {
+                "num_layers": [2, 4, 6],
+                "d_model": [64, 128, 256],
+                "nhead": [8, 16, 32],
+                "learning_rate": [1e-3, 5e-4],
+                "dropout": [0.1, 0.2],
+                "dim_feedforward": [256, 512],
+                "n_features": [
+                    kwargs.get("n_features", 30),
+                    kwargs.get("n_features", 30) - 5,
+                    kwargs.get("n_features", 30) - 8,
+                ],
+            }
+
+            cv_losses = walk_forward_time_series_cv_gridsearch(
+                df=df,
+                param_grid=param_grid,
+                n_folds=kwargs.get("cv_folds", 5),
+                model_class=TimeSeriesTransformer,
+                verbose=True,
+            )
             print(
                 f"Cross-validation mean val loss: {np.mean(cv_losses):.6f} +/- {np.std(cv_losses):.6f}"
             )
@@ -385,7 +422,6 @@ class TradingTransformer:
                     )
                     f_out2.write(line2)
             print(f"\nWindowed signals written to {windowed_filename}")
-
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import os
+import itertools
 
 import numpy as np
 import torch
@@ -12,6 +13,7 @@ from utils.model_utils import (
     select_important_features,
 )
 from models.timeseries_transformer import TimeSeriesTransformer
+
 
 def train_transformer_model(
     model,
@@ -88,8 +90,9 @@ def get_underlying_dataset(data_loader):
     return dataset
 
 
-def walk_forward_time_series_cv(
+def walk_forward_time_series_cv_gridsearch(
     df,
+    param_grid,
     n_folds=5,
     must_have_features=None,
     n_features=8,
@@ -97,111 +100,145 @@ def walk_forward_time_series_cv(
     pred_length=1,
     batch_size=32,
     epochs=20,
-    lr=1e-3,
     device="cuda" if torch.cuda.is_available() else "cpu",
     model_class=None,
     verbose=True,
 ):
     """
-    Walk-forward expanding window cross-validation on time series data.
-    - df: full, raw DataFrame (not preprocessed)
-    - must_have_features: list of core features always included (e.g. ['Open', 'High', ...])
-    - model_class: your transformer model class
-    - All other args as needed.
-    Returns: list of validation losses for each fold
+    Walk-forward expanding window cross-validation with grid search.
+    param_grid: dict, e.g. {"num_layers": [2, 4], "d_model": [64, 128], ...}
     """
-    fold_metrics = []
-    total = len(df)
-    fold_size = int(total / (n_folds + 1))
+    from collections import defaultdict
 
-    for fold in range(1, n_folds + 1):
-        train_end = fold * fold_size
-        val_start = train_end
-        val_end = min(val_start + fold_size, total)
-        if val_start >= total:
-            break
+    # Prepare hyperparameter combinations
+    grid_keys = list(param_grid.keys())
+    grid_values = list(param_grid.values())
+    grid_combinations = list(itertools.product(*grid_values))
+    results = []
 
-        # 1. Make train/val splits (use only historical data)
-        train_df = df.iloc[:train_end].copy()
-        val_df = df.iloc[val_start:val_end].copy()
+    for combo in grid_combinations:
+        # Build dict of this run's hyperparameters
+        params = dict(zip(grid_keys, combo))
         if verbose:
-            print(
-                f"\nFold {fold}: train 0:{train_end}, val {val_start}:{val_end} ({len(train_df)} train, {len(val_df)} val)"
+            print(f"\n=== Trying hyperparameters: {params} ===")
+
+        # (Optional: override some function args here if you gridsearch them)
+        fold_metrics = []
+        total = len(df)
+        fold_size = int(total / (n_folds + 1))
+
+        for fold in range(1, n_folds + 1):
+            train_end = fold * fold_size
+            val_start = train_end
+            val_end = min(val_start + fold_size, total)
+            if val_start >= total:
+                break
+
+            train_df = df.iloc[:train_end].copy()
+            val_df = df.iloc[val_start:val_end].copy()
+            if verbose:
+                print(
+                    f"\nFold {fold}: train 0:{train_end}, val {val_start}:{val_end} ({len(train_df)} train, {len(val_df)} val)"
+                )
+
+            # 2. Add technical indicators
+            train_df = add_technical_indicators(train_df)
+            val_df = add_technical_indicators(val_df)
+
+            # 3. Feature selection on train split
+            feature_cols = select_important_features(
+                train_df, target_col="Close", n_features=n_features
+            )
+            if must_have_features:
+                for f in must_have_features:
+                    if f not in feature_cols:
+                        feature_cols.append(f)
+            if "Close" not in feature_cols:
+                feature_cols.append("Close")
+
+            # 4. Fit scaler ONLY on train data
+            scaler = MinMaxScaler().fit(train_df[feature_cols])
+            train_scaled = scaler.transform(train_df[feature_cols])
+            val_scaled = scaler.transform(val_df[feature_cols])
+
+            # 5. Create datasets/loaders for this fold
+            target_col_idx = feature_cols.index("Close")
+            train_dataset = ForexDataset(
+                train_scaled,
+                params.get("seq_length", seq_length),
+                pred_length,
+                len(feature_cols),
+                target_col_idx,
+            )
+            val_dataset = ForexDataset(
+                val_scaled,
+                params.get("seq_length", seq_length),
+                pred_length,
+                len(feature_cols),
+                target_col_idx,
+            )
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=params.get("batch_size", batch_size),
+                shuffle=True,
+            )
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=params.get("batch_size", batch_size),
+                shuffle=False,
             )
 
-        # 2. Add technical indicators
-        train_df = add_technical_indicators(train_df)
-        val_df = add_technical_indicators(val_df)
+            # 6. Build and train model with current hyperparameters
+            model = model_class(
+                feature_size=len(feature_cols),
+                num_layers=params.get("num_layers", 2),
+                d_model=params.get("d_model", 64),
+                nhead=params.get("nhead", 8),
+                dim_feedforward=params.get("dim_feedforward", 256),
+                dropout=params.get("dropout", 0.1),
+                seq_length=params.get("seq_length", seq_length),
+                prediction_length=pred_length,
+            ).to(device)
 
-        # 3. Feature selection on train split
-        feature_cols = select_important_features(
-            train_df, target_col="Close", n_features=n_features
-        )
-        if must_have_features:
-            for f in must_have_features:
-                if f not in feature_cols:
-                    feature_cols.append(f)
-        if "Close" not in feature_cols:
-            feature_cols.append("Close")
+            model = train_transformer_model(
+                model,
+                train_loader,
+                val_loader,
+                lr=params.get("learning_rate", 1e-3),
+                epochs=params.get("epochs", epochs),
+                device=device,
+            )
 
-        # 4. Fit scaler ONLY on train data
-        scaler = MinMaxScaler().fit(train_df[feature_cols])
-        train_scaled = scaler.transform(train_df[feature_cols])
-        val_scaled = scaler.transform(val_df[feature_cols])
+            # 7. Compute validation loss for this fold
+            model.eval()
+            val_losses = []
+            criterion = torch.nn.MSELoss()
+            with torch.no_grad():
+                for x_val, y_val in val_loader:
+                    x_val = x_val.to(device)
+                    y_val = y_val.to(device)
+                    output_val = model(x_val)
+                    loss_val = criterion(output_val, y_val)
+                    val_losses.append(loss_val.item())
+            mean_val_loss = np.mean(val_losses)
+            if verbose:
+                print(f"Fold {fold}: Val Loss = {mean_val_loss:.6f}")
+            fold_metrics.append(mean_val_loss)
 
-        # 5. Create datasets/loaders for this fold
-        target_col_idx = feature_cols.index("Close")
-        train_dataset = ForexDataset(
-            train_scaled, seq_length, pred_length, len(feature_cols), target_col_idx
-        )
-        val_dataset = ForexDataset(
-            val_scaled, seq_length, pred_length, len(feature_cols), target_col_idx
-        )
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-        # 6. Build and train model
-        model = model_class(
-            feature_size=len(feature_cols),
-            num_layers=2,
-            d_model=64,
-            nhead=8,
-            dim_feedforward=256,
-            dropout=0.1,
-            seq_length=seq_length,
-            prediction_length=pred_length,
-        ).to(device)
-
-        model = train_transformer_model(
-            model,
-            train_loader,
-            val_loader,
-            lr=lr,
-            epochs=epochs,
-            device=device,
+        mean_metric = np.mean(fold_metrics)
+        std_metric = np.std(fold_metrics)
+        results.append((params, mean_metric, std_metric))
+        print(
+            f"\n[Result] Params: {params} | Mean Val Loss: {mean_metric:.6f} (+/- {std_metric:.6f})"
         )
 
-        # 7. Compute validation loss for this fold
-        model.eval()
-        val_losses = []
-        criterion = torch.nn.MSELoss()
-        with torch.no_grad():
-            for x_val, y_val in val_loader:
-                x_val = x_val.to(device)
-                y_val = y_val.to(device)
-                output_val = model(x_val)
-                loss_val = criterion(output_val, y_val)
-                val_losses.append(loss_val.item())
-        mean_val_loss = np.mean(val_losses)
-        if verbose:
-            print(f"Fold {fold}: Val Loss = {mean_val_loss:.6f}")
-        fold_metrics.append(mean_val_loss)
-
-    # Final results
+    # Find best
+    best = min(results, key=lambda x: x[1])
     print(
-        f"\nCross-Validation: Mean Val Loss = {np.mean(fold_metrics):.6f} (+/- {np.std(fold_metrics):.6f})"
+        f"\n==== Best Hyperparameters ====\n{best[0]}\nMean Val Loss: {best[1]:.6f} (+/- {best[2]:.6f})"
     )
-    return fold_metrics
+
+    return results
 
 
 def evaluate_model(

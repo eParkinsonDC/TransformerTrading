@@ -128,7 +128,7 @@ def select_and_scale_features(df, feature_cols=None, n_features=None):
     data = df[feature_cols].values
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data)
-    
+
     return data_scaled, scaler, feature_cols
 
 
@@ -137,9 +137,10 @@ def save_features_and_config(
 ):
     os.makedirs(output_dir, exist_ok=True)
     config_out = {
-        "feature_cols": feature_cols,
         "config": config,
     }
+    if 'feature_cols' not in config_out:
+        config_out['feature_cols'] = feature_cols
     config_path = os.path.join(output_dir, f"{prefix}_config.json")
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_out, f, indent=2, default=str)
