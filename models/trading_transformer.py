@@ -289,17 +289,13 @@ class TradingTransformer:
             )
             return
 
+        # Only keys expected by TradingTransformer __init__
         MODEL_ARGS = {
-            "seq_length",
-            "pred_length",
-            "batch_size",
-            "epochs",
-            "lr",
-            "device",
-            "cv_folds",
-            "n_features",
+            "seq_length", "pred_length", "batch_size", "epochs", "lr",
+            "device", "cv_folds", "n_features",
         }
-        # Map learning_rate to lr if provided
+
+        # Allow both 'learning_rate' and 'lr' CLI arguments
         if "learning_rate" in kwargs:
             kwargs["lr"] = kwargs.pop("learning_rate")
         model_args = {k: v for k, v in kwargs.items() if k in MODEL_ARGS}
@@ -308,34 +304,35 @@ class TradingTransformer:
             if not csv_file.endswith(".csv"):
                 continue
             csv_file_path = os.path.join(data_dir, csv_file)
-
             print(f"\nProcessing file: {csv_file_path}")
             trader = TradingTransformer(csv_file_path, **model_args)
             trader.load_and_prepare()
 
             # ---- Walk-forward CV using current CSV ----
             df = pd.read_csv(csv_file_path)
-            # Use correct column names
+            # Accept both time column styles
             time_col = 'Gmt time' if 'Gmt time' in df.columns else 'GMT_TIME'
             df[time_col] = pd.to_datetime(df[time_col], format="%d.%m.%Y %H:%M:%S.%f")
             df = df.sort_values(time_col).reset_index(drop=True)
 
             must_have = ["Open", "High", "Low", "Close", "rsi", "bb_high", "bb_low", "ma_20", "ma_20_slope"]
 
-            cv_losses = walk_forward_time_series_cv(
-                df=df,
-                n_folds=kwargs.get("cv_folds", 2),
-                must_have_features=must_have,
-                n_features=kwargs.get("n_features", 8),
-                seq_length=kwargs.get("seq_length", 30),
-                pred_length=kwargs.get("pred_length", 1),
-                batch_size=kwargs.get("batch_size", 32),
-                epochs=kwargs.get("epochs", 3),
-                lr=kwargs.get("lr", 1e-3),
-                device=trader.device,
-                model_class=TimeSeriesTransformer,
-                verbose=True
-            )
+            # Build args for CV - only what's needed!
+            cv_args = {
+                "df": df,
+                "n_folds": kwargs.get("cv_folds", 3),
+                "must_have_features": must_have,
+                "n_features": kwargs.get("n_features", 8),
+                "seq_length": kwargs.get("seq_length", 30),
+                "pred_length": kwargs.get("pred_length", 1),
+                "batch_size": kwargs.get("batch_size", 32),
+                "epochs": kwargs.get("epochs", 5),  # Using different epochs for CV!
+                "lr": kwargs.get("lr", 1e-3),
+                "device": trader.device,
+                "model_class": TimeSeriesTransformer,
+                "verbose": True
+            }
+            cv_losses = walk_forward_time_series_cv(**cv_args)
             print(
                 f"Cross-validation mean val loss: {np.mean(cv_losses):.6f} +/- {np.std(cv_losses):.6f}"
             )
@@ -388,6 +385,7 @@ class TradingTransformer:
                     )
                     f_out2.write(line2)
             print(f"\nWindowed signals written to {windowed_filename}")
+
 
 
 if __name__ == "__main__":
