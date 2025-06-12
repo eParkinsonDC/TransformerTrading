@@ -20,5 +20,5 @@ trade_env
 output_images/
 
 scripts/test_cuda.py
-
+scripts/test.cuda
 test_cuda.py
