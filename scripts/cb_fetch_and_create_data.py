@@ -75,7 +75,7 @@ def get_all_candles(
 
 def save_candles_to_csv(product_id, candles, start_dt=None, data_folder="data"):
     # Coinbase format: [ time, low, high, open, close, volume ]
-    # Desired CSV: Gmt time,Open,High,Low,Close,Volume
+    # Desired CSV: GMT_TIME,Open,High,Low,Close,Volume
 
     # Default: get the earliest timestamp in candles
     if start_dt is None and candles:
@@ -90,7 +90,7 @@ def save_candles_to_csv(product_id, candles, start_dt=None, data_folder="data"):
     os.makedirs(data_folder, exist_ok=True)
     file_path = os.path.join(data_folder, filename)
 
-    header = ["Gmt time", "Open", "High", "Low", "Close", "Volume"]
+    header = ["GMT_TIME", "Open", "High", "Low", "Close", "Volume"]
     with open(file_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(header)
@@ -127,12 +127,12 @@ def run_data_pipeline(arguments=None):
         print("No candle data returned! Check your API credentials and product ID.")
         return False, arguments
 
-    # --- Handle "years too large" case ---
+    # --- Handle case where selected years range exceeds data amount ---
     earliest_api_candle = datetime.fromtimestamp(candles[0][0], tz=timezone.utc)
 
     if earliest_api_candle > start_dt + timedelta(
         hours=1
-    ):  # Give a little margin for exchange sync
+    ):  # Give a little extra margin for exchange sync
         print(
             f"""
         \n[WARNING] Requested data starting from {start_dt:%Y-%m-%d}, but

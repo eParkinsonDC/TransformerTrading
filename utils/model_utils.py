@@ -74,7 +74,7 @@ def add_technical_indicators(df):
 
 
 def select_important_features(df, target_col="Close", n_features=None):
-    # Your required features (always included, if present in df)
+
     always_keep = [
         "Open",
         "High",
@@ -86,11 +86,11 @@ def select_important_features(df, target_col="Close", n_features=None):
         "ma_20",
         "ma_20_slope",
     ]
-    # Remove any that aren't in your dataframe, just in case
+    # Remove any that aren't in dataframe columns
     always_keep = [col for col in always_keep if col in df.columns]
 
     # Candidate features: everything except time/target
-    all_possible = [col for col in df.columns if col not in [target_col, "Gmt time"]]
+    all_possible = [col for col in df.columns if col not in [target_col, "GMT_TIME"]]
     # Remove always_keep from candidate list
     candidate = [col for col in all_possible if col not in always_keep]
 
@@ -122,7 +122,7 @@ def select_and_scale_features(df, feature_cols=None, n_features=None):
         feature_cols = select_important_features(
             df, target_col="Close", n_features=n_features
         )
-    # Always keep "Close"
+    # Always keep "Close" (Target feature)
     if "Close" not in feature_cols:
         feature_cols.append("Close")
     data = df[feature_cols].values

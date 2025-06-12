@@ -176,6 +176,3 @@ Always test on unseen data and understand all model/market risks before any real
 Eduardo Parkinson de Castro
 
 ---
-
-**Questions, feature requests, or issues?**
-Open an issue or just ask!

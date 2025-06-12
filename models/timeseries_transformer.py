@@ -15,7 +15,7 @@ class TimeSeriesTransformer(nn.Module):
     ):
         super(TimeSeriesTransformer, self).__init__()
 
-        # We'll embed each feature vector (feature_size) into a d_model-sized vector
+        # We embed each feature vector (feature_size) into a d_model-sized vector
         self.input_fc = nn.Linear(feature_size, d_model)
         self.input_dropout = nn.Dropout(dropout)  # Additional dropout
 
@@ -35,8 +35,25 @@ class TimeSeriesTransformer(nn.Module):
             encoder_layer, num_layers=num_layers
         )
 
-        # Final output: we want to forecast `prediction_length` steps for 1 dimension (Close price).
-        # If you want multi-step and multi-dimensional, adjust accordingly.
+        # Final output: we want to forecast `prediction_length` steps for 1
+        # dimension (Close price).
+        # So we need a linear layer that maps d_model to prediction_length
+        # This is the output layer that will give us the forecasted values
+        # Note: prediction_length is the number of future steps we want to
+        # predict
+        # For example, if we want to predict the next 1 step,
+        # prediction_length=1
+        # If we want to predict the next 5 steps, prediction_length=5
+        # The output will be of shape [batch_size, prediction_length]
+        # If we want to predict multiple future steps, we can adjust
+        # prediction_length accordingly
+        # This layer will take the last output of the transformer and produce
+        # the forecast
+        # For example, if d_model=64 and prediction_length=1, the output will
+        # be of shape [batch_size, 1]
+        # If prediction_length=5, the output will be of shape [batch_size, 5]
+        # This is the final layer that will output the forecasted values
+
         self.fc_out = nn.Linear(d_model, prediction_length)
 
     def forward(self, src):

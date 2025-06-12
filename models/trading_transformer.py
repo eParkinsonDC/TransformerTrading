@@ -78,8 +78,8 @@ class TradingTransformer:
 
     def load_and_prepare(self):
         df = pd.read_csv(self.csv_file)
-        df["Gmt time"] = pd.to_datetime(df["Gmt time"], format="%d.%m.%Y %H:%M:%S.%f")
-        df.sort_values(by="Gmt time", inplace=True)
+        df["GMT_TIME"] = pd.to_datetime(df["GMT_TIME"], format="%d.%m.%Y %H:%M:%S.%f")
+        df.sort_values(by="GMT_TIME", inplace=True)
         df.reset_index(drop=True, inplace=True)
         df = add_technical_indicators(df)
 
@@ -92,7 +92,7 @@ class TradingTransformer:
         val_df = df.iloc[train_size : train_size + val_size]
         test_df = df.iloc[train_size + val_size :]
 
-        # Core feature set you always want to keep
+        # Core feature set you always want to keep 
         must_have = [
             "Open",
             "High",
@@ -198,8 +198,8 @@ class TradingTransformer:
 
     def predict_next(self):
         df = pd.read_csv(self.csv_file)
-        df["Gmt time"] = pd.to_datetime(df["Gmt time"], format="%d.%m.%Y %H:%M:%S.%f")
-        df = df.sort_values("Gmt time").reset_index(drop=True)
+        df["GMT_TIME"] = pd.to_datetime(df["GMT_TIME"], format="%d.%m.%Y %H:%M:%S.%f")
+        df = df.sort_values("GMT_TIME").reset_index(drop=True)
         df = add_technical_indicators(df)
         data_scaled, _, _ = select_and_scale_features(df, self.feature_cols)
         x_input = data_scaled[-self.seq_length :]
@@ -230,8 +230,8 @@ class TradingTransformer:
 
     def recursive_predict_future_window(self, steps=24, verbose=True):
         df = pd.read_csv(self.csv_file)
-        df["Gmt time"] = pd.to_datetime(df["Gmt time"], format="%d.%m.%Y %H:%M:%S.%f")
-        df = df.sort_values("Gmt time").reset_index(drop=True)
+        df["GMT_TIME"] = pd.to_datetime(df["GMT_TIME"], format="%d.%m.%Y %H:%M:%S.%f")
+        df = df.sort_values("GMT_TIME").reset_index(drop=True)
         df_pred = df.copy()
         results = []
         for i in range(steps):
@@ -250,9 +250,9 @@ class TradingTransformer:
             dummy[:, self.target_col_idx] = pred_scaled
             next_close = self.scaler.inverse_transform(dummy)[:, self.target_col_idx][0]
             last_row = window_df.iloc[-1].copy()
-            new_time = last_row["Gmt time"] + pd.Timedelta(hours=1)
+            new_time = last_row["GMT_TIME"] + pd.Timedelta(hours=1)
             new_row = last_row.copy()
-            new_row["Gmt time"] = new_time
+            new_row["GMT_TIME"] = new_time
             new_row["Open"] = last_row["Close"]
             new_row["High"] = max(last_row["Close"], next_close)
             new_row["Low"] = min(last_row["Close"], next_close)
@@ -338,7 +338,7 @@ class TradingTransformer:
             trader.evaluate()
             signal = trader.predict_next()
             df = pd.read_csv(csv_file_path, encoding="utf-8")
-            last_time = df["Gmt time"].iloc[-1]
+            last_time = df["GMT_TIME"].iloc[-1]
             if signal["action"].upper() == "BUY":
                 line = f"BUY at {last_time}: Predicted next close {signal['next_close']:.5f} > Last close {signal['last_close']:.5f}\n"
             elif signal["action"].upper() == "SELL":
