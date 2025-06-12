@@ -128,6 +128,7 @@ def select_and_scale_features(df, feature_cols=None, n_features=None):
     data = df[feature_cols].values
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data)
+    
     return data_scaled, scaler, feature_cols
 
 

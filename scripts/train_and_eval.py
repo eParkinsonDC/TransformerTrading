@@ -4,9 +4,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
-
+from torch.utils.data import DataLoader
+from sklearn.preprocessing import MinMaxScaler
+from models.forex_dataset import ForexDataset
+from utils.model_utils import (
+    add_technical_indicators,
+    select_important_features,
+)
 from models.timeseries_transformer import TimeSeriesTransformer
-
 
 def train_transformer_model(
     model,
@@ -83,70 +88,116 @@ def get_underlying_dataset(data_loader):
     return dataset
 
 
-def time_series_cross_validate(trader, k=5):
-    """Performs expanding window cross-validation."""
-
-    dataset = get_underlying_dataset(trader.train_loader)
-    if not isinstance(dataset, torch.utils.data.Dataset):
-        raise ValueError(
-            "Expected train_loader.dataset to be a PyTorch Dataset, got: "
-            f"{type(dataset)}"
-        )
-    total = len(dataset)
-    fold_size = int(total / (k + 1))
+def walk_forward_time_series_cv(
+    df,
+    n_folds=5,
+    must_have_features=None,
+    n_features=8,
+    seq_length=30,
+    pred_length=1,
+    batch_size=32,
+    epochs=20,
+    lr=1e-3,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    model_class=None,
+    verbose=True,
+):
+    """
+    Walk-forward expanding window cross-validation on time series data.
+    - df: full, raw DataFrame (not preprocessed)
+    - must_have_features: list of core features always included (e.g. ['Open', 'High', ...])
+    - model_class: your transformer model class
+    - All other args as needed.
+    Returns: list of validation losses for each fold
+    """
     fold_metrics = []
+    total = len(df)
+    fold_size = int(total / (n_folds + 1))
 
-    for fold in range(1, k + 1):
+    for fold in range(1, n_folds + 1):
         train_end = fold * fold_size
         val_start = train_end
-        val_end = val_start + fold_size
+        val_end = min(val_start + fold_size, total)
+        if val_start >= total:
+            break
 
-        train_subset = torch.utils.data.Subset(dataset, range(0, train_end))
-        val_subset = torch.utils.data.Subset(
-            dataset, range(val_start, min(val_end, total))
-        )
+        # 1. Make train/val splits (use only historical data)
+        train_df = df.iloc[:train_end].copy()
+        val_df = df.iloc[val_start:val_end].copy()
+        if verbose:
+            print(
+                f"\nFold {fold}: train 0:{train_end}, val {val_start}:{val_end} ({len(train_df)} train, {len(val_df)} val)"
+            )
 
-        train_loader = torch.utils.data.DataLoader(
-            train_subset, batch_size=trader.batch_size, shuffle=False
-        )
-        val_loader = torch.utils.data.DataLoader(
-            val_subset, batch_size=trader.batch_size, shuffle=False
-        )
+        # 2. Add technical indicators
+        train_df = add_technical_indicators(train_df)
+        val_df = add_technical_indicators(val_df)
 
-        model = TimeSeriesTransformer(
-            feature_size=len(trader.feature_cols),
+        # 3. Feature selection on train split
+        feature_cols = select_important_features(
+            train_df, target_col="Close", n_features=n_features
+        )
+        if must_have_features:
+            for f in must_have_features:
+                if f not in feature_cols:
+                    feature_cols.append(f)
+        if "Close" not in feature_cols:
+            feature_cols.append("Close")
+
+        # 4. Fit scaler ONLY on train data
+        scaler = MinMaxScaler().fit(train_df[feature_cols])
+        train_scaled = scaler.transform(train_df[feature_cols])
+        val_scaled = scaler.transform(val_df[feature_cols])
+
+        # 5. Create datasets/loaders for this fold
+        target_col_idx = feature_cols.index("Close")
+        train_dataset = ForexDataset(
+            train_scaled, seq_length, pred_length, len(feature_cols), target_col_idx
+        )
+        val_dataset = ForexDataset(
+            val_scaled, seq_length, pred_length, len(feature_cols), target_col_idx
+        )
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+        # 6. Build and train model
+        model = model_class(
+            feature_size=len(feature_cols),
             num_layers=2,
             d_model=64,
             nhead=8,
             dim_feedforward=256,
             dropout=0.1,
-            seq_length=trader.seq_length,
-            prediction_length=trader.pred_length,
-        ).to(trader.device)
+            seq_length=seq_length,
+            prediction_length=pred_length,
+        ).to(device)
 
         model = train_transformer_model(
             model,
             train_loader,
             val_loader,
-            lr=trader.lr,
-            epochs=trader.epochs,
-            device=trader.device,
+            lr=lr,
+            epochs=epochs,
+            device=device,
         )
-        # After training, compute val loss
+
+        # 7. Compute validation loss for this fold
         model.eval()
         val_losses = []
         criterion = torch.nn.MSELoss()
         with torch.no_grad():
             for x_val, y_val in val_loader:
-                x_val = x_val.to(trader.device)
-                y_val = y_val.to(trader.device)
+                x_val = x_val.to(device)
+                y_val = y_val.to(device)
                 output_val = model(x_val)
                 loss_val = criterion(output_val, y_val)
                 val_losses.append(loss_val.item())
         mean_val_loss = np.mean(val_losses)
-        print(f"CV Fold {fold}: Val Loss = {mean_val_loss:.6f}")
+        if verbose:
+            print(f"Fold {fold}: Val Loss = {mean_val_loss:.6f}")
         fold_metrics.append(mean_val_loss)
 
+    # Final results
     print(
         f"\nCross-Validation: Mean Val Loss = {np.mean(fold_metrics):.6f} (+/- {np.std(fold_metrics):.6f})"
     )

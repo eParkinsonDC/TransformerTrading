@@ -11,7 +11,7 @@ from models.timeseries_transformer import TimeSeriesTransformer
 from scripts.train_and_eval import (
     evaluate_model,
     plot_rolling_predictions,
-    time_series_cross_validate,
+    walk_forward_time_series_cv,
     train_transformer_model,
 )
 from utils.model_utils import (
@@ -92,7 +92,7 @@ class TradingTransformer:
         val_df = df.iloc[train_size : train_size + val_size]
         test_df = df.iloc[train_size + val_size :]
 
-        # Core feature set you always want to keep 
+        # Core feature set you always want to keep
         must_have = [
             "Open",
             "High",
@@ -289,7 +289,6 @@ class TradingTransformer:
             )
             return
 
-        # VALID MODEL INIT KEYS:
         MODEL_ARGS = {
             "seq_length",
             "pred_length",
@@ -313,11 +312,34 @@ class TradingTransformer:
             print(f"\nProcessing file: {csv_file_path}")
             trader = TradingTransformer(csv_file_path, **model_args)
             trader.load_and_prepare()
-            print("Performing cross-validation...")
-            cv_losses = time_series_cross_validate(trader, k=trader.cv_folds)
+
+            # ---- Walk-forward CV using current CSV ----
+            df = pd.read_csv(csv_file_path)
+            # Use correct column names
+            time_col = 'Gmt time' if 'Gmt time' in df.columns else 'GMT_TIME'
+            df[time_col] = pd.to_datetime(df[time_col], format="%d.%m.%Y %H:%M:%S.%f")
+            df = df.sort_values(time_col).reset_index(drop=True)
+
+            must_have = ["Open", "High", "Low", "Close", "rsi", "bb_high", "bb_low", "ma_20", "ma_20_slope"]
+
+            cv_losses = walk_forward_time_series_cv(
+                df=df,
+                n_folds=kwargs.get("cv_folds", 2),
+                must_have_features=must_have,
+                n_features=kwargs.get("n_features", 8),
+                seq_length=kwargs.get("seq_length", 30),
+                pred_length=kwargs.get("pred_length", 1),
+                batch_size=kwargs.get("batch_size", 32),
+                epochs=kwargs.get("epochs", 3),
+                lr=kwargs.get("lr", 1e-3),
+                device=trader.device,
+                model_class=TimeSeriesTransformer,
+                verbose=True
+            )
             print(
                 f"Cross-validation mean val loss: {np.mean(cv_losses):.6f} +/- {np.std(cv_losses):.6f}"
             )
+
             trader.build_model()
             best_model_path = os.path.join(
                 output_dir, f"best_model_{os.path.splitext(csv_file)[0]}.pt"
@@ -337,8 +359,8 @@ class TradingTransformer:
             trader.model.eval()
             trader.evaluate()
             signal = trader.predict_next()
-            df = pd.read_csv(csv_file_path, encoding="utf-8")
-            last_time = df["GMT_TIME"].iloc[-1]
+            df_eval = pd.read_csv(csv_file_path, encoding="utf-8")
+            last_time = df_eval[time_col].iloc[-1]
             if signal["action"].upper() == "BUY":
                 line = f"BUY at {last_time}: Predicted next close {signal['next_close']:.5f} > Last close {signal['last_close']:.5f}\n"
             elif signal["action"].upper() == "SELL":
