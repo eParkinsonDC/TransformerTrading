@@ -9,7 +9,7 @@ def get_default_args():
         "product": "ETH-EUR",
         "data_dir": "data",
         "new_data": False,
-        "n_features": 12,
+        "n_features": 8,
         "model_dir": "outputs",
         "cv_folds": 2,
         "epochs": 20,
@@ -22,7 +22,7 @@ def get_default_args():
         "d_model": 64,
         "nhead": 8,
         "dim_feedforward": 256,
-        "rolling_window": 24,
+        "rolling_window": 60,
     }
 
 
@@ -46,11 +46,11 @@ def main():
     parser.add_argument("--new_data", action="store_true")
     parser.add_argument("--model_dir", type=str, default="outputs")
     # Training and evaluation arguments
-    parser.add_argument("--n_features", type=int, default=12)
+    parser.add_argument("--n_features", type=int, default=8)
     parser.add_argument("--cv_folds", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--rolling_window", type=int, default=24)
+    parser.add_argument("--rolling_window", type=int, default=60)
     # Model Arguments
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--dropout", type=float, default=0.1)
