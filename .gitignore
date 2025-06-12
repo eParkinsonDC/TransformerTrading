@@ -18,3 +18,7 @@ __pycache__/
 *.xls
 trade_env
 output_images/
+
+scripts/test_cuda.py
+
+test_cuda.py
