@@ -139,10 +139,16 @@ def save_features_and_config(
     config_out = {
         "config": config,
     }
+<<<<<<< HEAD
     
     if 'feature_cols' not in config:
         config_out['feature_cols'] = feature_cols
         config_path = os.path.join(output_dir, f"{prefix}_config.json")
+=======
+    if 'feature_cols' not in config:
+        config_out['feature_cols'] = feature_cols
+    config_path = os.path.join(output_dir, f"{prefix}_config.json")
+>>>>>>> 67c30cb92fde8dfac92bb0543ae531c6ae73d9b0
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_out, f, indent=2, default=str)
     print(f"Saved features and config to {config_path}")
