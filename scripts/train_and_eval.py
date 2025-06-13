@@ -227,7 +227,7 @@ def walk_forward_time_series_cv_gridsearch(
 
         mean_metric = np.mean(fold_metrics)
         std_metric = np.std(fold_metrics)
-        results.append((params, mean_metric, std_metric))
+        results.append((params, round(mean_metric,6), round(std_metric,6)))
         print(
             f"\n[Result] Params: {params} | Mean Val Loss: {mean_metric:.6f} (+/- {std_metric:.6f})"
         )
@@ -235,13 +235,13 @@ def walk_forward_time_series_cv_gridsearch(
     # Find best
     best = min(results, key=lambda x: x[1])
     print(
-        f"\n==== Best Hyperparameters ====\n{best[0]}\nMean Val Loss: {best[1]:.6f} (+/- {best[2]:.6f})"
+        "\n==== Best Hyperparameters ====\n"
+        f"{best[0]}\n"
+        "Mean Val Loss: "
+        f"{best[1]:.6f} (+/- {best[2]:.6f})"
     )
 
-    return [
-        round(x, 6) if isinstance(x, float) else x
-        for x in best[0].values()
-    ]
+    return results
 
 
 def evaluate_model(
