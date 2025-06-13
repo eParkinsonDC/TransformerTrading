@@ -333,22 +333,6 @@ class TradingTransformer:
                 "ma_20_slope",
             ]
 
-            # Build args for CV - only what's needed!
-            cv_args = {
-                "df": df,
-                "n_folds": kwargs.get("cv_folds", 3),
-                "must_have_features": must_have,
-                "n_features": kwargs.get("n_features", 8),
-                "seq_length": kwargs.get("seq_length", 30),
-                "pred_length": kwargs.get("pred_length", 1),
-                "batch_size": kwargs.get("batch_size", 32),
-                "epochs": kwargs.get("epochs", 5),  # Using different epochs for CV!
-                "lr": kwargs.get("lr", 1e-3),
-                "device": trader.device,
-                "model_class": TimeSeriesTransformer,
-                "verbose": True,
-            }
-
             param_grid = {
                 "num_layers": [2, 4, 6],
                 "d_model": [64, 128, 256],

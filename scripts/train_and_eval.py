@@ -147,7 +147,7 @@ def walk_forward_time_series_cv_gridsearch(
 
             # 3. Feature selection on train split
             feature_cols = select_important_features(
-                train_df, target_col="Close", n_features=n_features
+                train_df, target_col="Close", n_features=params.get('n_features', n_features)
             )
             if must_have_features:
                 for f in must_have_features:
@@ -238,7 +238,10 @@ def walk_forward_time_series_cv_gridsearch(
         f"\n==== Best Hyperparameters ====\n{best[0]}\nMean Val Loss: {best[1]:.6f} (+/- {best[2]:.6f})"
     )
 
-    return results
+    return [
+        round(x, 6) if isinstance(x, float) else x
+        for x in best[0].values()
+    ]
 
 
 def evaluate_model(

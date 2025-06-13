@@ -139,8 +139,8 @@ def save_features_and_config(
     config_out = {
         "config": config,
     }
-    if 'feature_cols' not in config_out:
-        config_out['feature_cols'] = feature_cols
+
+    config_out['feature_cols'] = feature_cols
     config_path = os.path.join(output_dir, f"{prefix}_config.json")
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_out, f, indent=2, default=str)
