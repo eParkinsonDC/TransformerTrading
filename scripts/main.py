@@ -19,7 +19,7 @@ def get_default_args():
         "seq_length": 45,
         "prediction_length": 1,
         "num_layers": 4,
-        "d_model": 84,
+        "d_model": 80,
         "nhead": 16,
         "dim_feedforward": 256,
         "rolling_window": 60,

@@ -147,7 +147,11 @@ def walk_forward_time_series_cv_gridsearch(
 
             # 3. Feature selection on train split
             feature_cols = select_important_features(
+<<<<<<< HEAD
                 train_df, target_col="Close", n_features=params.get('n_features', n_features)
+=======
+                train_df, target_col="Close", n_features=params.get("n_features", n_features)
+>>>>>>> 8d07f90f1373378c70729b37c5a52746d6aac410
             )
             if must_have_features:
                 for f in must_have_features:
